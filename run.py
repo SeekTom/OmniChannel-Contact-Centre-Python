@@ -22,14 +22,15 @@ workflow_sales_sid = os.environ.get("TWILIO_ACME_SALES_WORKFLOW_SID")  # sales w
 workflow_billing_sid = os.environ.get("TWILIO_ACME_BILLING_WORKFLOW_SID")  # billing workflow
 workflow_OOO_sid = os.environ.get("TWILIO_ACME_OOO_SID") # out of office workflow
 workflow_mngr = os.environ.get("TWILIO_ACME_MANAGER_WORKFLOW_SID") # manager escalation workflow
+workflow_chat = 'WWdac644a18ee3d1aa704d3f16509e73de'
 
 api_key = os.environ.get("TWILIO_ACME_CHAT_API_KEY")
 api_secret = os.environ.get("TWILIO_ACME_CHAT_SECRET")
 chat_service = os.environ.get("TWILIO_ACME_CHAT_SERVICE_SID")
-
+#chat_service_sms = 'IS63b08e7aa2e848eabf35aee6a71aa8db'
 twiml_app = os.environ.get("TWILIO_ACME_TWIML_APP_SID") # Twilio client application SID
-caller_id = os.environ.get("TWILIO_ACME_CALLERID") # Contact Center's phone number to be used in outbound communication
-
+#caller_id = os.environ.get("TWILIO_ACME_CALLERID") # Contact Center's phone number to be used in outbound communication
+caller_id = '+447481343625'
 client = Client(account_sid, auth_token)
 
 # Create dictionary with activity SIDs
@@ -67,6 +68,31 @@ def return_work_space(digits):
 
         return workflowdata
 
+def create_sms_chat_user(identity):
+    new_user = client.chat.services(chat_service).users.create(
+        identity=identity
+    )
+    return new_user
+def create_channel(user):
+    #create new channel
+    print('new user, creating channel and user')
+
+    new_sms_user_channel = client.chat.services(chat_service).channels.create(
+        friendly_name= user.identity + ' support request')
+
+    member = client.chat.services(chat_service).channels(new_sms_user_channel.sid).members.create(
+        user.identity)
+
+    return new_sms_user_channel
+
+def find_chat_user(user_list, from_):
+
+
+    user_list = set()
+
+    user =''
+
+    return user
 
 # Render index
 
@@ -153,7 +179,82 @@ def call():
         r.client('TomPY')
     return str(resp)
 
+@app.route('/incoming_message', methods=['POST', 'GET'])
+def handle_text():
+    resp = MessagingResponse()
+    # message = Message()
+    # message.body('Thanks for contacting ACME Corp, connecting you to a support agent now')
+    # resp.append(message)
 
+    chat_users = client.chat.services(chat_service).users.list()
+    user_dict = {}
+   # print(chat_users)
+
+    if len(chat_users) > 0:
+        print(len(chat_users))
+        for user in chat_users:
+
+            current_user = client.chat.services(chat_service).users(user.sid).fetch()
+
+            if current_user.identity == request.values['From']:
+
+                print('users found, matching user to sender')
+
+                user_channels = client.chat.services(chat_service).users(current_user.sid).user_channels.list()
+
+                latest_channel = None
+
+                if len(user_channels) > 0:
+
+                    latest_channel = user_channels[-1].channel_sid
+                    print(latest_channel)
+
+                    sendMessagetoChannel = client.chat.services(chat_service).channels(latest_channel).messages.create(from_=current_user.identity, body=request.values['Body'])
+
+                else:
+                    latest_channel = create_channel(current_user)
+                    print(latest_channel)
+                    sendMessagetoChannel = client.chat.services(chat_service).channels(latest_channel).messages.create(
+                        from_=current_user.identity, body=request.values['Body'])
+
+                task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_chat,
+                                                                                 task_channel='SMS',
+                                                                                 attributes='{"selected_product":"sms", "product":"chat", "from": "' +
+                                                                                            request.values['From'] +
+                                                                                            '", "Body":"' +
+                                                                                            request.values[
+                                                                                                'Body'] + '", "channel":"' + latest_channel + '", "crm_user":"yes"}')
+    else:
+        print('no user found, creating new user')
+        new_user = create_sms_chat_user(request.values['From'])
+        new_channel=  create_channel(new_user)
+        # add the sms body to the channel
+        sendMessagetoChannel = client.chat.services(chat_service).channels(new_channel).messages.create(
+            from_=new_user.identity, body=request.values['Body'])
+
+        task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_chat,
+                                                                            task_channel='SMS',
+                                                                            attributes='{"selected_product":"sms", "product":"chat", "from": "' +
+                                                                                       request.values['From'] +
+                                                                                       '", "Body":"' +
+                                                                                       request.values[
+                                                                                           'Body'] + '", "channel":"' + new_channel.sid + '"}')
+
+    return Response(str(resp), mimetype='text/xml')
+
+@app.route('/sendSMS', methods=['GET', 'POST'])
+def sendReply():
+
+    if request.values:
+
+        message = client.messages.create(
+            from_ = caller_id,
+            to = request.values['From'],
+            body = request.values['Body']
+        )
+        print(message.sid)
+
+    return Response('200', mimetype='text/json')
 ###########Agent views ######################
 
 @app.route("/agent_list", methods=['GET', 'POST'])
@@ -355,6 +456,12 @@ def escalateChat():
 
     return jsonify(task_sid)
 
+# @app.route('/getMessageBody', methods=['GET'])
+# def getfirstMessage():
+#     channel =request.values['channel']
+#     first_message = client.chat.services(chat_service).channels(channel).messages.list()
+#     update channel = client.chat.services(chat_service).channels(channel).messages.create(from_=)
+
 @app.route('/postChat/', methods=['GET'])
 def returnTranscript(charset='utf-8'):
     messages = []
@@ -397,11 +504,11 @@ def getTranscript():
 
     #update channel to state user has left
 
-    leave_message = client.chat \
-        .services(chat_service) \
-        .channels(channel) \
-        .messages \
-        .create(identity + " has left the chat.")
+    # leave_message = client.chat \
+    #     .services(chat_service) \
+    #     .channels(channel) \
+    #     .messages \
+    #     .create(identity + " has left the chat.")
 
     get_transcript = client.chat \
         .services(chat_service) \
@@ -411,10 +518,10 @@ def getTranscript():
 
     # delete channel
 
-    response = client.chat \
-        .services(chat_service) \
-        .channels(request.values.get("channel")) \
-        .delete()
+    # response = client.chat \
+    #     .services(chat_service) \
+    #     .channels(request.values.get("channel")) \
+    #     .delete()
 
     for message in get_transcript:
 

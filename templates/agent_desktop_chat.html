@@ -7,7 +7,9 @@
 
     <script type="text/javascript" src="//media.twiliocdn.com/taskrouter/js/v1.9.4/taskrouter.min.js"></script>
     <script src="https://media.twiliocdn.com/sdk/js/common/v0.1/twilio-common.min.js"></script>
-    <script src="https://media.twiliocdn.com/sdk/js/chat/v1.2/twilio-chat.min.js"></script>
+<!-- <script src="https://media.twiliocdn.com/sdk/js/chat/v3.0/twilio-chat.min.js"></script>-->
+  <script src="https://media.twiliocdn.com/sdk/js/chat/v1.2/twilio-chat.min.js"></script>
+  <!--  <script src="https://media.twiliocdn.com/sdk/js/chat/v2.2/twilio-chat.min.js"></script>-->
     <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
     <script type="text/javascript">
         /* Subscribe to a subset of the available TaskRouter.js events for a worker */
@@ -15,6 +17,8 @@
         var chatClient;
         var $chatWindow = $('#messages');
         var user_dataObject;
+        var username;
+        var workerName;
 
          // A handle to the "general" chat channel - the one and only channel we
         // will have in this sample app
@@ -24,6 +28,7 @@
             worker.on('ready', function (worker) {
                 agentActivityChanged(worker.activityName);
                 logger("Successfully registered as: " + worker.friendlyName);
+                workerName = worker.friendlyName;
                 logger("Current activity is: " + worker.activityName);
             });
 
@@ -40,7 +45,15 @@
                 logger(reservation.sid);
                 console.log(reservation.sid);
                 ReservationObject = reservation;
-                buttonManager("accept", "inline");
+
+                if (ReservationObject.task.attributes.selected_product == "sms"){
+
+                    document.getElementById('accept').innerText = 'Accept SMS chat'
+                    buttonManager("accept", "inline");
+                }else{
+                    buttonManager("accept", "inline");
+                }
+
 
             });
 
@@ -116,7 +129,7 @@
             elements.item(0).style.display = 'block';
         }
 
-         function print(infoMessage, asHtml) {
+        function print(infoMessage, asHtml) {
         var $msg = $('<div class="info">');
         if (asHtml) {
             $msg.html(infoMessage);
@@ -132,10 +145,19 @@
             console.log(ReservationObject);
             buttonManager("accept", "none");
             buttonManager("end", "inline");
-            buttonManager("escalate", "inline");
+
+            if (ReservationObject.task.attributes.selected_product == "sms") {
+                  document.getElementById('accept').innerText = 'Accept SMS chat'
+            } else {
+                buttonManager("escalate", "inline");
+
+            }
+
+            var chatWindowBox = $('#messages');
+            chatWindowBox.innerText = '';
             // Our interface to the Chat service
 
-            var username = worker.friendlyName;
+           username = worker.friendlyName;
 
             // Helper function to print info messages to the chat window
             function logger(message) {
@@ -145,19 +167,7 @@
                 }
             // Helper function to print chat message to the chat window
 
-             function printMessage(fromUser, message) {
-                var $chatWindowBox = $('#messages');
 
-                var $user = $('<span class="username">').text(fromUser + ':');
-                if (fromUser === username) {
-                    $user.addClass('me');
-                }
-                var $message = $('<span class="message">').text(message);
-                var $container = $('<div class="message-container">');
-                $container.append($user).append($message);
-                $chatWindowBox.append($container);
-                $chatWindowBox.scrollTop($chatWindowBox[0].scrollHeight);
-            }
 
             // Alert the user they have been assigned a random username
             logger('Logging in...');
@@ -185,9 +195,23 @@
                 chatClient = new Twilio.Chat.Client(data.token);
                 chatClient.getSubscribedChannels().then(createOrJoinGeneralChannel);
             });
+  }
 
+        function printMessage(fromUser, message) {
+                var $chatWindowBox = $('#messages');
 
-            function createOrJoinGeneralChannel() {
+                var $user = $('<span class="username">').text(fromUser + ':');
+                if (fromUser === username) {
+                    $user.addClass('me');
+                }
+                var $message = $('<span class="message">').text(message);
+                var $container = $('<div class="message-container">');
+                $container.append($user).append($message);
+                $chatWindowBox.append($container);
+                $chatWindowBox.scrollTop($chatWindowBox[0].scrollHeight);
+            }
+
+       function createOrJoinGeneralChannel() {
 
                 logger('Attempting to join customer chat channel...');
                 var promise = chatClient.getChannelBySid(ReservationObject.task.attributes.channel);
@@ -195,6 +219,7 @@
                     generalChannel = channel;
                     console.log(generalChannel);
                     setupChannel();
+                    logger('Joined customer chat')
                 }).catch(function() {
                     // If it doesn't exist, let's create it
                     logger('Creating general channel');
@@ -210,58 +235,79 @@
                 });
             }
 
-            // Set up channel after it has been found
-            function setupChannel() {
+        // Set up channel after it has been found
+        function setupChannel() {
                 // Join the general channel
-                generalChannel.join().then(function(channel) {
-                    print('<span>Joined customer chat</span>', true);
-                    generalChannel.sendMessage("Thank you for contacting OwlCorp today my name is " + ReservationObject.workerName + " how can I help you today?");
-                });
 
+            generalChannel.join().then(function (channel) {
+                  if (ReservationObject.task.attributes.selected_product == "sms") {
+                      printMessage('Customer ', ReservationObject.task.attributes.Body)
+                  }
+                });
 
                 // Listen for new messages sent to the channel
-                generalChannel.on('messageAdded', function(message) {
+                    generalChannel.on('messageAdded', function(message) {
 
-                    printMessage(message.author, message.body);
+                   if (message.author == workerName)
+                    {
+                        //worker message will already have been added, so no need to print it to the screen
+                    }else{
+                       //customer has updated the channel and so needs to be pushed to the worker
+                        printMessage(message.author, message.body);
+                   }
                 });
 
-                generalChannel.on('typingStarted', function (member) {
-                document.getElementById("typing").innerText =  member.identity + " is typing";
+                    generalChannel.on('typingStarted', function (member) {
+                    document.getElementById("typing").innerText =  member.identity + " is typing";
+                       });
 
-                   });
+                    generalChannel.on('typingEnded', function (member) {
+                      document.getElementById("typing").innerText =  member.identity + " stopped typing";
 
-                generalChannel.on('typingEnded', function (member) {
-                  document.getElementById("typing").innerText =  member.identity + " stopped typing";
-
-                });
+                    });
 
             }
 
-            // Send a new message to the general channel
-                var $input = $('#chat-input');
-                $input.on('keydown', function(e) {
-                    if (e.keyCode == 13 && generalChannel) {
-                        generalChannel.sendMessage($input.val())
-                        $input.val('');
-                    }else {
-                // else send the Typing Indicator signal
-                        generalChannel.typing();
-                        console.log("agent typing");
-                    }
-                });
+        function sendMessage(){
+
+              // Send a new message to the general channel
+
+                             if (event.which == 13) {
+                                 event.preventDefault();
+
+                                 chatinput = $('#chat-input');
+                                 console.log(chatinput.val());
+                                 generalChannel.sendMessage(chatinput.val());
+
+                                 printMessage(workerName, chatinput.val());
+
+                              if (ReservationObject.task.attributes.selected_product =="sms") {
+                                  $.post("/sendSMS", {
+                                    Body: String(chatinput.val()),
+                                    From: ReservationObject.task.attributes.from
+
+                                });
+
+                              }
+                                chatinput.val('');
+
+                             }
         }
 
-
-
-        function completeReservation(){
+        function completeReservation() {
             logger('chat complete!');
-           print(user_dataObject);
+            print(user_dataObject);
             ReservationObject.task.complete();
-             $.post("/postChat/", {
+            $.post("/postChat/", {
                 channel: ReservationObject.task.attributes.channel,
-                 identity: user_dataObject.identity
+                identity: user_dataObject.identity
 
             });
+
+            buttonManager("end", "none");
+            buttonManager("Leave", "none");
+            buttonManager("escalate", "none");
+            buttonManager("accept", "none");
 
         }
 
@@ -275,7 +321,6 @@
 
                     });
         }
-
 
         function logger(message) {
             var log = document.getElementById('log');
@@ -341,7 +386,7 @@
       <div id="typing"></div>
     <div id="messages"></div>
 
-    <input id="chat-input" type="text" placeholder="say anything" autofocus/>
+    <input id="chat-input" onkeypress="sendMessage()" type="text" placeholder="" autofocus/>
   </section>
 
 
