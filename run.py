@@ -33,6 +33,7 @@ chat_service = os.environ.get("TWILIO_ACME_CHAT_SERVICE_SID")
 sync_service = os.environ.get("TWILIO_ACME_SYNC_SERVICE_SID")
 
 twiml_app = os.environ.get("TWILIO_ACME_TWIML_APP_SID")  # Twilio client application SID
+
 caller_id = os.environ.get("TWILIO_ACME_CALLERID")  # Contact Center's phone number to be used in outbound communication
 caller_id_sms = os.environ.get("TWILIO_ACME_SMS_NUMBER")
 
@@ -211,10 +212,8 @@ def handle_text():
 
     chat_users = client.chat.services(chat_service).users.list()
     user_dict = {}
-    # print(chat_users)
 
     if len(chat_users) > 0:
-       # print(len(chat_users))
 
         for user in chat_users:
 
@@ -224,23 +223,17 @@ def handle_text():
             # found user
                 print('found user')
                 current_tasks = client.taskrouter.workspaces(workspace_sid).tasks.list(
-                    #evaluate_task_attributes='(From =="' + request.values['From'] + '" AND task.assignment_status != "completed")'
                     evaluate_task_attributes='from == "'+ request.values['From']+'"'
                 )
                 user_channels = client.chat.services(chat_service).users(current_user.sid).user_channels.list()
                 print('reached here 1')
-
-
-                print(len(current_tasks))
-
 
                 latest_channel = None
 
                 if len(current_tasks) > 0:
                     last_task = current_tasks[-1]
                     if last_task.assignment_status == 'assigned':
-                        # check for channel and skip task
-                        #                          #
+                        # check for channel and skip task creation
 
                         if len(user_channels) > 0:
                             print('user has channel and existing task assigned, updating channel skipping task creation')
@@ -248,29 +241,34 @@ def handle_text():
                             sendMessageToChannel(channel=latest_channel, from_=request.values['From'],
                                                  content=request.values['Body'])
                         else:
-                           # no current task but user and channel
+                           # no current channel create one and then create a new task
                             print('user but no current channel, create channel and task')
                             new_channel = create_channel(user.sid)
-                            # add the sms body to the channel
 
                             createSmsTask(from_user=request.values['From'], channel=new_channel.sid,
                                       body=request.values['Body'])
                     elif last_task.assignment_status =='pending':
-                        # current task, update channel  but user and channel
+                        # current task, update channel with latest from the customer
                         print('task is pending')
                         sendMessageToChannel(channel=latest_channel, from_=request.values['From'], content=request.values['Body'])
                     elif last_task.assignment_status == "cancelled":
                         print('task is cancelled')
-                    # no current task but user and channel
+                    # no current task but user and channel,create new task
                         latest_channel = user_channels[-1].channel_sid
                         createSmsTask(from_user=request.values['From'], channel=latest_channel,
                                   body=request.values['Body'])
                     elif last_task.assignment_status == 'completed':
+                        # prior task but it has been completed, create new task
                         latest_channel = user_channels[-1].channel_sid
                         createSmsTask(from_user=request.values['From'], channel=latest_channel,
                               body=request.values['Body'])
+                else:
+                    # there are no prior tasks - create a new one
+                    latest_channel = user_channels[-1].channel_sid
+                    createSmsTask(from_user=request.values['From'], channel=latest_channel,
+                          body=request.values['Body'])
     else:
-        print('reached here 6')
+        # Brand new user, set up a user, a channel and then create a new task
         print('no user found, creating new user and new task')
         new_user = create_sms_chat_user(request.values['From'])
         new_channel = create_channel(new_user)

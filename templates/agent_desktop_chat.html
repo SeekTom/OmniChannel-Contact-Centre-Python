@@ -80,6 +80,13 @@
 
             worker.on("reservation.accepted", function (reservation) {
                 logger("Reservation " + reservation.sid + " accepted!");
+                generalChannel.sendMessage(workerName + 'has accepted your support request and will join shortly');
+                $.post("/sendSMS", {
+                                    Body: workerName + 'has accepted your support request and will join shortly',
+                                    From: ReservationObject.task.attributes.from
+
+                                });
+
             });
 
             worker.on("reservation.rejected", function (reservation) {
@@ -281,17 +288,26 @@
         }
 
         function completeReservation() {
-            logger('chat complete!');
+
+             ReservationObject.task.complete();
+             logger('chat complete!');
             let type;
 
             if (ReservationObject.task.attributes.selected_product ==="sms")
             {
                 type = 'sms'
+
+                $.post("/sendSMS", {
+                    Body: workerName + ' has closed your support request, please send a new message if you are still in need of any assistance.',
+                    From: ReservationObject.task.attributes.from
+                });
+
+
             }
             else{
                 type = 'chat'
             }
-            ReservationObject.task.complete();
+
            worker.update("ActivitySid", "{{ activity['WrapUp'] }}", function (error, worker) {
                 if (error) {
                     console.log(error.code);
@@ -304,6 +320,7 @@
                 identity: user_dataObject.identity,
                 type:type
             });
+
 
              document.getElementById("messages").innerText ='';
         }
