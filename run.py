@@ -101,10 +101,16 @@ def create_channel(user):
 
 # Render index
 
-def createSmsTask(attributes):
+def createSmsTask(from_user, body, channel):
+
+
+    attributes = '{"selected_product":"sms", "product":"chat", "from": "' + \
+                 from_user + '", "body":"' + body + \
+                 '", "channel":"' + channel + '"}'
     task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_sid,
                                                                     task_channel='SMS',
                                                                     attributes=attributes)
+    sendMessageToChannel(channel, from_user, body)
 
 
 def sendMessageToChannel(channel, from_, content):
@@ -208,7 +214,7 @@ def handle_text():
     # print(chat_users)
 
     if len(chat_users) > 0:
-        print(len(chat_users))
+       # print(len(chat_users))
 
         for user in chat_users:
 
@@ -216,69 +222,61 @@ def handle_text():
 
             if current_user.identity == request.values['From']:
             # found user
-
+                print('found user')
                 current_tasks = client.taskrouter.workspaces(workspace_sid).tasks.list(
                     #evaluate_task_attributes='(From =="' + request.values['From'] + '" AND task.assignment_status != "completed")'
-                    evaluate_task_attributes='(from =="' + request.values['From'] + '")'
+                    evaluate_task_attributes='from == "'+ request.values['From']+'"'
                 )
                 user_channels = client.chat.services(chat_service).users(current_user.sid).user_channels.list()
-                for ta in current_tasks:
-                    print(ta.sid, ta.assignment_status)
-                    latest_channel = None
+                print('reached here 1')
 
-                    if str(ta.assignment_status) == 'assigned':
-                        print('found assigned task: ' + ta.sid, ta.assignment_status)
+
+                print(len(current_tasks))
+
+
+                latest_channel = None
+
+                if len(current_tasks) > 0:
+                    last_task = current_tasks[-1]
+                    if last_task.assignment_status == 'assigned':
+                        # check for channel and skip task
+                        #                          #
 
                         if len(user_channels) > 0:
+                            print('user has channel and existing task assigned, updating channel skipping task creation')
                             latest_channel = user_channels[-1].channel_sid
-
+                            sendMessageToChannel(channel=latest_channel, from_=request.values['From'],
+                                                 content=request.values['Body'])
                         else:
-                            # user but no current channel, create channel and task
+                           # no current task but user and channel
                             print('user but no current channel, create channel and task')
-                            latest_channel = create_channel(current_user)
+                            new_channel = create_channel(user.sid)
+                            # add the sms body to the channel
 
-                            print(latest_channel)
-
-                            task_attributes = '{"selected_product":"sms", "product":"chat", "from_": "' + \
-                                         request.values['From'] + '", "body":"' + request.values['Body'] + \
-                                         '", "channel":"' + latest_channel.sid + '", "crm_user":"yes"}'
-                            createSmsTask(task_attributes)
-
-                    sendMessageToChannel(latest_channel, current_user.identity, request.values['Body'])
-
-            # else:
-            #         # no current task but user and channel
-            #     print('no current task but user and channel')
-            #
-            #     latest_channel = user_channels[-1].channel_sid
-            #
-            #     task_attributes = '{"selected_product":"sms", "product":"chat", "from": "' + request.values['From'] \
-            #                      + '", "body":"' + request.values['Body'] + \
-            #                           '", "channel":"' + latest_channel + '", "crm_user":"yes"}'
-            #     createSmsTask(task_attributes)
-            #     sendMessageToChannel(latest_channel, current_user.identity, request.values['Body'])
+                            createSmsTask(from_user=request.values['From'], channel=new_channel.sid,
+                                      body=request.values['Body'])
+                    elif last_task.assignment_status =='pending':
+                        # current task, update channel  but user and channel
+                        print('task is pending')
+                        sendMessageToChannel(channel=latest_channel, from_=request.values['From'], content=request.values['Body'])
+                    elif last_task.assignment_status == "cancelled":
+                        print('task is cancelled')
+                    # no current task but user and channel
+                        latest_channel = user_channels[-1].channel_sid
+                        createSmsTask(from_user=request.values['From'], channel=latest_channel,
+                                  body=request.values['Body'])
+                    elif last_task.assignment_status == 'completed':
+                        latest_channel = user_channels[-1].channel_sid
+                        createSmsTask(from_user=request.values['From'], channel=latest_channel,
+                              body=request.values['Body'])
     else:
+        print('reached here 6')
         print('no user found, creating new user and new task')
         new_user = create_sms_chat_user(request.values['From'])
         new_channel = create_channel(new_user)
         # add the sms body to the channel
 
-
-
-        attributes = '{"selected_product":"sms", "product":"chat", "from": "' + \
-                     request.values['From'] + '", "Body":"' + request.values['Body'] + \
-                     '", "channel":"' + new_channel.sid + '"}'
-
-        createSmsTask(attributes)
-        sendMessageToChannel(new_channel, new_user.identity,request.values['Body'])
-
-        # task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_sid,
-        #                                                                     task_channel='SMS',
-        #                                                                     attributes='{"selected_product":"sms", "product":"chat", "from": "' +
-        #                                                                                request.values['From'] +
-        #                                                                                '", "Body":"' +
-        #                                                                                request.values[
-        #                                                                                    'Body'] + '", "channel":"' + new_channel.sid + '"}')
+        createSmsTask(from_user=request.values['From'], channel=new_channel.sid, body=request.values['Body'])
 
     return Response(str(resp), mimetype='text/xml')
 

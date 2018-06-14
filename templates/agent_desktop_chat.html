@@ -232,10 +232,8 @@
                    if (message.author === workerName)
                     {
                         //worker message will already have been added, so no need to print it to the screen
-                    }else{
-                       //customer has updated the channel and so needs to be pushed to the worker
-                        printMessage(message.author, message.body);
-                   }
+                    }else
+                   { printMessage(message.author, message.body);}
                 });
 
                     generalChannel.on('typingStarted', function (member) {
@@ -307,7 +305,7 @@
                 type:type
             });
 
-
+             document.getElementById("messages").innerText ='';
         }
 
         function escalateChat(){
