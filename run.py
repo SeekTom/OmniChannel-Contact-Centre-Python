@@ -4,11 +4,12 @@ from twilio.rest import Client
 from twilio.jwt.taskrouter.capabilities import WorkerCapabilityToken
 from twilio.twiml.voice_response import VoiceResponse, Conference, Enqueue, Dial
 from twilio.twiml.messaging_response import Message, MessagingResponse
+
 from twilio.jwt.client import ClientCapabilityToken
 from twilio.jwt.access_token import AccessToken
-from twilio.jwt.access_token.grants import (ChatGrant)
+from twilio.jwt.access_token.grants import (ChatGrant, SyncGrant)
 
-import os
+import os,json
 
 app = Flask(__name__, static_folder='app/static')
 
@@ -16,35 +17,40 @@ app = Flask(__name__, static_folder='app/static')
 account_sid = os.environ.get("TWILIO_ACME_ACCOUNT_SID")
 auth_token = os.environ.get("TWILIO_ACME_AUTH_TOKEN")
 
-workspace_sid = os.environ.get("TWILIO_ACME_WORKSPACE_SID") # workspace
+workspace_sid = os.environ.get("TWILIO_ACME_WORKSPACE_SID")  # workspace
+
 workflow_sid = os.environ.get("TWILIO_ACME_SUPPORT_WORKFLOW_SID")  # support workflow
 workflow_sales_sid = os.environ.get("TWILIO_ACME_SALES_WORKFLOW_SID")  # sales workflow
 workflow_billing_sid = os.environ.get("TWILIO_ACME_BILLING_WORKFLOW_SID")  # billing workflow
-workflow_OOO_sid = os.environ.get("TWILIO_ACME_OOO_SID") # out of office workflow
-workflow_mngr = os.environ.get("TWILIO_ACME_MANAGER_WORKFLOW_SID") # manager escalation workflow
-workflow_chat = 'WWdac644a18ee3d1aa704d3f16509e73de'
+workflow_OOO_sid = os.environ.get("TWILIO_ACME_OOO_SID")  # out of office workflow
+workflow_mngr = os.environ.get("TWILIO_ACME_MANAGER_WORKFLOW_SID")  # manager escalation workflow
+
 
 api_key = os.environ.get("TWILIO_ACME_CHAT_API_KEY")
 api_secret = os.environ.get("TWILIO_ACME_CHAT_SECRET")
+
 chat_service = os.environ.get("TWILIO_ACME_CHAT_SERVICE_SID")
-#chat_service_sms = 'IS63b08e7aa2e848eabf35aee6a71aa8db'
-twiml_app = os.environ.get("TWILIO_ACME_TWIML_APP_SID") # Twilio client application SID
-#caller_id = os.environ.get("TWILIO_ACME_CALLERID") # Contact Center's phone number to be used in outbound communication
-caller_id = '+447481343625'
+sync_service = os.environ.get("TWILIO_ACME_SYNC_SERVICE_SID")
+
+twiml_app = os.environ.get("TWILIO_ACME_TWIML_APP_SID")  # Twilio client application SID
+caller_id = os.environ.get("TWILIO_ACME_CALLERID")  # Contact Center's phone number to be used in outbound communication
+caller_id_sms = os.environ.get("TWILIO_ACME_SMS_NUMBER")
+
 client = Client(account_sid, auth_token)
 
-# Create dictionary with activity SIDs
+# Create dictionary with activity SIDs to be shared with the agent desktop
 activity = {}
+
 activities = client.taskrouter.workspaces(workspace_sid).activities.list()
+
 for a in activities:
     activity[a.friendly_name] = a.sid
+
 
 # private functions
 
 def return_work_space(digits):
-
-
-    #query user input and assign the correct workflow
+    # query user input and assign the correct workflow
 
     digit_pressed = digits
     if digit_pressed == "1":
@@ -57,44 +63,53 @@ def return_work_space(digits):
     if digit_pressed == "2":
         department = "support"
         work_flow_sid = workflow_sid
-        workflowdata = (work_flow_sid, department) # tuple
+        workflowdata = (work_flow_sid, department)  # tuple
 
         return workflowdata
 
     if digit_pressed == "3":
         department = "billing"
         work_flow_sid = workflow_billing_sid
-        workflowdata = (work_flow_sid, department) # tuple
+        workflowdata = (work_flow_sid, department)  # tuple
 
         return workflowdata
+
+
+# create a new chat user
 
 def create_sms_chat_user(identity):
     new_user = client.chat.services(chat_service).users.create(
         identity=identity
     )
     return new_user
+
+
+# create a new chat channel
+
 def create_channel(user):
-    #create new channel
+    # create new channel
     print('new user, creating channel and user')
 
     new_sms_user_channel = client.chat.services(chat_service).channels.create(
-        friendly_name= user.identity + ' support request')
+        friendly_name=user.identity + ' support request')
 
     member = client.chat.services(chat_service).channels(new_sms_user_channel.sid).members.create(
         user.identity)
 
     return new_sms_user_channel
 
-def find_chat_user(user_list, from_):
-
-
-    user_list = set()
-
-    user =''
-
-    return user
 
 # Render index
+
+def createSmsTask(attributes):
+    task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_sid,
+                                                                    task_channel='SMS',
+                                                                    attributes=attributes)
+
+
+def sendMessageToChannel(channel, from_, content):
+    client.chat.services(chat_service).channels(channel).messages.create(from_=from_, body=content)
+
 
 @app.route("/", methods=['GET', 'POST'])
 def hello_world():
@@ -102,7 +117,7 @@ def hello_world():
 
 
 # Default route for support line voice request url
-#Gather to select language
+# Gather to select language
 
 @app.route("/incoming_call", methods=['GET', 'POST'])
 def incoming_call():
@@ -117,7 +132,7 @@ def incoming_call():
 
 ##################################################################
 
-#redirect the user to the correct department for their language choice
+# redirect the user to the correct department for their language choice
 
 @app.route("/incoming_call/department", methods=['POST', 'GET'])
 def choose_dept():
@@ -126,12 +141,12 @@ def choose_dept():
         # Get which digit the caller chose
         choice = int(request.values['Digits'])
         switcher = {
-          1: "es",
-          2: "en",
-          3: "fr"
+            1: "es",
+            2: "en",
+            3: "fr"
         }
         dept_lang = switcher.get(choice)
-        resp.redirect("/dept?lang="+dept_lang+"&digit="+str(choice))
+        resp.redirect("/dept?lang=" + dept_lang + "&digit=" + str(choice))
         return str(resp)
 
 
@@ -143,15 +158,16 @@ def dept():
     dept_lang = request.values['lang']
     digit = request.values['digit']
     say_dict = {
-      'es': ["Para ventas oprime uno", "Para apoyo oprime duo", "Para finanzas oprime tres"],
-      'en': ["For sales press one", "For support press two", "For billing press three"],
-      'fr': [u"Pour ventes pressé un", u"Pour soutien pressé deux", u"Pour finances pressé tres"]
+        'es': ["Para ventas oprime uno", "Para apoyo oprime duo", "Para finanzas oprime tres"],
+        'en': ["For sales press one", "For support press two", "For billing press three"],
+        'fr': [u"Pour ventes pressé un", u"Pour soutien pressé deux", u"Pour finances pressé tres"]
     }
-    with resp.gather(num_digits=digit, action="/enqueue_call?lang="+dept_lang, timeout="10") as g:
+    with resp.gather(num_digits=digit, action="/enqueue_call?lang=" + dept_lang, timeout="10") as g:
         g.say(say_dict.get(dept_lang)[0], language=dept_lang)
         g.say(say_dict.get(dept_lang)[1], language=dept_lang)
         g.say(say_dict.get(dept_lang)[2], language=dept_lang)
     return str(resp)
+
 
 # Enqueue calls to tasks based on language
 
@@ -159,16 +175,16 @@ def dept():
 def enqueue_call():
     if 'Digits' in request.values:
         digit_pressed = request.values['Digits']
-        workflow_d = return_work_space(digit_pressed) #array of workspace and product
+        workflow_d = return_work_space(digit_pressed)  # array of workspace and product
         resp = VoiceResponse()
         select_lang = request.values['lang']
         with resp.enqueue(None, workflow_Sid=workflow_d[0]) as e:
-            e.task('{"selected_language" : "'+select_lang+'", "selected_product" : "' + workflow_d[1] + '"}')
+            e.task('{"selected_language" : "' + select_lang + '", "selected_product" : "' + workflow_d[1] + '"}')
         return Response(str(resp), mimetype='text/xml')
     else:
         resp = VoiceResponse()
-        resp.say("no digits detected") #tell user something is amiss
-        resp.redirect("/incoming_call")  #redirect back to initial step
+        resp.say("no digits detected")  # tell user something is amiss
+        resp.redirect("/incoming_call")  # redirect back to initial step
     return Response(str(resp), mimetype='text/xml')
 
 
@@ -179,6 +195,7 @@ def call():
         r.client('TomPY')
     return str(resp)
 
+
 @app.route('/incoming_message', methods=['POST', 'GET'])
 def handle_text():
     resp = MessagingResponse()
@@ -188,73 +205,97 @@ def handle_text():
 
     chat_users = client.chat.services(chat_service).users.list()
     user_dict = {}
-   # print(chat_users)
+    # print(chat_users)
 
     if len(chat_users) > 0:
         print(len(chat_users))
+
         for user in chat_users:
 
             current_user = client.chat.services(chat_service).users(user.sid).fetch()
 
             if current_user.identity == request.values['From']:
+            # found user
 
-                print('users found, matching user to sender')
-
+                current_tasks = client.taskrouter.workspaces(workspace_sid).tasks.list(
+                    #evaluate_task_attributes='(From =="' + request.values['From'] + '" AND task.assignment_status != "completed")'
+                    evaluate_task_attributes='(from =="' + request.values['From'] + '")'
+                )
                 user_channels = client.chat.services(chat_service).users(current_user.sid).user_channels.list()
+                for ta in current_tasks:
+                    print(ta.sid, ta.assignment_status)
+                    latest_channel = None
 
-                latest_channel = None
+                    if str(ta.assignment_status) == 'assigned':
+                        print('found assigned task: ' + ta.sid, ta.assignment_status)
 
-                if len(user_channels) > 0:
+                        if len(user_channels) > 0:
+                            latest_channel = user_channels[-1].channel_sid
 
-                    latest_channel = user_channels[-1].channel_sid
-                    print(latest_channel)
+                        else:
+                            # user but no current channel, create channel and task
+                            print('user but no current channel, create channel and task')
+                            latest_channel = create_channel(current_user)
 
-                    sendMessagetoChannel = client.chat.services(chat_service).channels(latest_channel).messages.create(from_=current_user.identity, body=request.values['Body'])
+                            print(latest_channel)
 
-                else:
-                    latest_channel = create_channel(current_user)
-                    print(latest_channel)
-                    sendMessagetoChannel = client.chat.services(chat_service).channels(latest_channel).messages.create(
-                        from_=current_user.identity, body=request.values['Body'])
+                            task_attributes = '{"selected_product":"sms", "product":"chat", "from_": "' + \
+                                         request.values['From'] + '", "body":"' + request.values['Body'] + \
+                                         '", "channel":"' + latest_channel.sid + '", "crm_user":"yes"}'
+                            createSmsTask(task_attributes)
 
-                task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_chat,
-                                                                                 task_channel='SMS',
-                                                                                 attributes='{"selected_product":"sms", "product":"chat", "from": "' +
-                                                                                            request.values['From'] +
-                                                                                            '", "Body":"' +
-                                                                                            request.values[
-                                                                                                'Body'] + '", "channel":"' + latest_channel + '", "crm_user":"yes"}')
+                    sendMessageToChannel(latest_channel, current_user.identity, request.values['Body'])
+
+            # else:
+            #         # no current task but user and channel
+            #     print('no current task but user and channel')
+            #
+            #     latest_channel = user_channels[-1].channel_sid
+            #
+            #     task_attributes = '{"selected_product":"sms", "product":"chat", "from": "' + request.values['From'] \
+            #                      + '", "body":"' + request.values['Body'] + \
+            #                           '", "channel":"' + latest_channel + '", "crm_user":"yes"}'
+            #     createSmsTask(task_attributes)
+            #     sendMessageToChannel(latest_channel, current_user.identity, request.values['Body'])
     else:
-        print('no user found, creating new user')
+        print('no user found, creating new user and new task')
         new_user = create_sms_chat_user(request.values['From'])
-        new_channel=  create_channel(new_user)
+        new_channel = create_channel(new_user)
         # add the sms body to the channel
-        sendMessagetoChannel = client.chat.services(chat_service).channels(new_channel).messages.create(
-            from_=new_user.identity, body=request.values['Body'])
 
-        task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_chat,
-                                                                            task_channel='SMS',
-                                                                            attributes='{"selected_product":"sms", "product":"chat", "from": "' +
-                                                                                       request.values['From'] +
-                                                                                       '", "Body":"' +
-                                                                                       request.values[
-                                                                                           'Body'] + '", "channel":"' + new_channel.sid + '"}')
+
+
+        attributes = '{"selected_product":"sms", "product":"chat", "from": "' + \
+                     request.values['From'] + '", "Body":"' + request.values['Body'] + \
+                     '", "channel":"' + new_channel.sid + '"}'
+
+        createSmsTask(attributes)
+        sendMessageToChannel(new_channel, new_user.identity,request.values['Body'])
+
+        # task = client.taskrouter.workspaces(workspace_sid).tasks.create(workflow_sid=workflow_sid,
+        #                                                                     task_channel='SMS',
+        #                                                                     attributes='{"selected_product":"sms", "product":"chat", "from": "' +
+        #                                                                                request.values['From'] +
+        #                                                                                '", "Body":"' +
+        #                                                                                request.values[
+        #                                                                                    'Body'] + '", "channel":"' + new_channel.sid + '"}')
 
     return Response(str(resp), mimetype='text/xml')
 
+
 @app.route('/sendSMS', methods=['GET', 'POST'])
 def sendReply():
-
     if request.values:
-
         message = client.messages.create(
-            from_ = caller_id,
-            to = request.values['From'],
-            body = request.values['Body']
+            from_=caller_id_sms,
+            to=request.values['From'],
+            body=request.values['Body']
         )
         print(message.sid)
 
     return Response('200', mimetype='text/json')
+
+
 ###########Agent views ######################
 
 @app.route("/agent_list", methods=['GET', 'POST'])
@@ -324,7 +365,7 @@ def noClientView():
 
 @app.route("/conference_callback", methods=['GET', 'POST'])
 def conference_callback():
-    #monitor for when the customer leaves a conference and output something to the console
+    # monitor for when the customer leaves a conference and output something to the console
 
     if 'StatusCallbackEvent' in request.values and 'CallSid' in request.values:
 
@@ -345,8 +386,9 @@ def conference_callback():
                 else:
                     print("Something else happened: " + cb_event)
         return '', 204
-    
+
     return render_template('status.html')
+
 
 @app.route("/recording_callback", methods=['GET', 'POST'])
 def recording_callback():
@@ -366,16 +408,16 @@ def transferCall():
 
     # create new task for the manager escalation
     # add new attributes on the task for customer from number, customer tasksid, selected_language and conference SID
-    
+
     # todo: manager workflow is set manually for now, scope for making that a variable based on who the worker is selecting to escalate to in the next version   
     task = client.taskrouter.workspaces(workspace_sid).tasks \
         .create(workflow_sid=workflow_mngr, task_channel="voice",
                 attributes='{"selected_product":"manager' +
-                    '", "selected_language":"' + request.values.get('selected_language') + 
-                    '", "conference":"' + request.values.get('conference') +
-                    '", "customer":"' + request.values.get('participant') + 
-                    '", "customer_taskSid":"' + request.values.get('taskSid') + 
-                    '", "from":"' + request.values.get('from') + '"}')
+                           '", "selected_language":"' + request.values.get('selected_language') +
+                           '", "conference":"' + request.values.get('conference') +
+                           '", "customer":"' + request.values.get('participant') +
+                           '", "customer_taskSid":"' + request.values.get('taskSid') +
+                           '", "from":"' + request.values.get('from') + '"}')
 
     resp = VoiceResponse
     return Response(str(resp), mimetype='text/xml')
@@ -406,14 +448,14 @@ def transferToManager():
 
     return Response(str(response), mimetype='text/xml')
 
+
 @app.route('/chat/')
 def chat():
-
     return render_template('chat.html')
+
 
 @app.route('/createCustomerChannel', methods=['POST, GET'])
 def createCustomerChannel():
-
     channel = request.values.get('taskSid')
 
     return channel
@@ -430,6 +472,11 @@ def createChatTask():
 
 @app.route('/agent_chat')
 def agentChat():
+    activity = {}
+    activities = client.taskrouter.workspaces(workspace_sid).activities.list()
+    for a in activities:
+        activity[a.friendly_name] = a.sid
+
     worker_sid = request.args.get('WorkerSid')  # TaskRouter Worker Token
     worker_capability = WorkerCapabilityToken(
         account_sid=account_sid,
@@ -443,18 +490,20 @@ def agentChat():
 
     worker_token = worker_capability.to_jwt(ttl=28800)  # 8 hours
 
-    return render_template('agent_desktop_chat.html', worker_token=worker_token.decode("utf-8"))
+    return render_template('agent_desktop_chat.html', worker_token=worker_token.decode("utf-8"), activity=activity)
+
 
 @app.route('/escalateChat/', methods=['POST'])
 def escalateChat():
-
     task = client.taskrouter.workspaces(workspace_sid).tasks \
         .create(workflow_sid=workflow_mngr, task_channel="chat",
-                attributes='{"selected_product":"manager", "escalation_type": "chat", "channel":"' + request.values.get("channel") + '"}')
+                attributes='{"selected_product":"manager", "escalation_type": "chat", "channel":"' + request.values.get(
+                    "channel") + '"}')
     print("Escalation to manager created " + task.sid)
     task_sid = {"TaskSid": task.sid}
 
     return jsonify(task_sid)
+
 
 # @app.route('/getMessageBody', methods=['GET'])
 # def getfirstMessage():
@@ -464,6 +513,7 @@ def escalateChat():
 
 @app.route('/postChat/', methods=['GET'])
 def returnTranscript(charset='utf-8'):
+
     messages = []
     get_transcript = client.chat \
         .services(chat_service) \
@@ -472,14 +522,12 @@ def returnTranscript(charset='utf-8'):
         .list()
 
     for message in get_transcript:
-
         messages.append(message.from_ + ": " + message.body)
         print(message.from_ + ": " + message.body)
 
     data = []
 
     for messages in get_transcript:
-
         item = {"message": message.from_ + ": " + message.body}
         data.append(item)
 
@@ -488,13 +536,12 @@ def returnTranscript(charset='utf-8'):
 
 @app.route('/postChat/', methods=['POST'])
 def getTranscript():
-    #output chat transcript to console
+    # output chat transcript to console
     print(chat_service)
     channel = request.values.get("channel")
     identity = request.values.get("identity")
     messages = []
     # leave channel
-
 
     response = client.chat \
         .services(chat_service) \
@@ -502,13 +549,14 @@ def getTranscript():
         .members(identity) \
         .delete()
 
-    #update channel to state user has left
+    if request.values['type'] == 'chat':
+        # update channel to state user has left
 
-    # leave_message = client.chat \
-    #     .services(chat_service) \
-    #     .channels(channel) \
-    #     .messages \
-    #     .create(identity + " has left the chat.")
+        leave_message = client.chat \
+            .services(chat_service) \
+            .channels(channel) \
+            .messages \
+            .create(identity + " has left the chat.")
 
     get_transcript = client.chat \
         .services(chat_service) \
@@ -524,11 +572,11 @@ def getTranscript():
     #     .delete()
 
     for message in get_transcript:
-
         messages.append(message.from_ + ": " + message.body)
         print(message.from_ + ": " + message.body)
 
     return render_template('chat_transcript.html')
+
 
 # Basic health check - check environment variables have been configured
 # correctly
@@ -541,10 +589,17 @@ def config():
         chat_service,
     )
 
+
 @app.route('/token', methods=['GET'])
 def randomToken():
     username = request.values.get("identity")
     return generateToken(username)
+
+
+@app.route('/synctoken', methods=['GET'])
+def randomsyncToken():
+    username = request.values.get("identity")
+    return generateSyncToken(username)
 
 
 @app.route('/token', methods=['POST'])
@@ -555,18 +610,53 @@ def createToken(username):
     identity = content.get('identity', username)
     return generateToken(identity)
 
+
+@app.route('/synctoken', methods=['POST'])
+def createsyncToken(username):
+    # Get the request json or form data
+    content = request.get_json() or request.form
+    # get the identity from the request, or make one up
+    identity = content.get('identity', username)
+    return generateSyncToken(identity)
+
+
 @app.route('/token/<identity>', methods=['POST', 'GET'])
 def token(identity):
     return generateToken(identity)
 
-def generateToken(identity):
 
+@app.route('/synctoken/<identity>', methods=['POST', 'GET'])
+def synctoken(identity):
+    return generateSyncToken(identity)
+
+
+@app.route('/syncStatus', methods=['GET', 'POST'])
+def returnStatus():
+    status = ''
+
+    return status
+
+
+def generateToken(identity):
     # Create access token with credentials
     token = AccessToken(account_sid, api_key, api_secret, identity=identity)
 
     if chat_service:
         chat_grant = ChatGrant(service_sid=chat_service)
         token.add_grant(chat_grant)
+
+    # Return token info as JSON
+    return jsonify(identity=identity, token=token.to_jwt().decode('utf-8'))
+
+
+def generateSyncToken(identity):
+    # Create access token with credentials
+    token = AccessToken(account_sid, api_key, api_secret, identity=identity)
+
+    if sync_service:
+        sync_grant = SyncGrant(service_sid=sync_service)
+
+        token.add_grant(sync_grant)
     # Return token info as JSON
     return jsonify(identity=identity, token=token.to_jwt().decode('utf-8'))
 

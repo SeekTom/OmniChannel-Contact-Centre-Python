@@ -4,37 +4,58 @@
     <title>Customer Care - Voice Agent Screen</title>
     <link rel="stylesheet" href="//media.twiliocdn.com/taskrouter/quickstart/agent.css"/>
     <link rel="stylesheet" href={{ url_for('static', filename='css/agent.css') }}>
+      <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
 
-    <script type="text/javascript" src="//media.twiliocdn.com/taskrouter/js/v1.9.4/taskrouter.min.js"></script>
+
+  <!--  <script type="text/javascript" src="//media.twiliocdn.com/taskrouter/js/v1.9.4/taskrouter.min.js"></script>-->
+    <script type="text/javascript" src="//media.twiliocdn.com/taskrouter/js/v1.13/taskrouter.min.js"></script>
     <script src="https://media.twiliocdn.com/sdk/js/common/v0.1/twilio-common.min.js"></script>
 <!-- <script src="https://media.twiliocdn.com/sdk/js/chat/v3.0/twilio-chat.min.js"></script>-->
   <script src="https://media.twiliocdn.com/sdk/js/chat/v1.2/twilio-chat.min.js"></script>
   <!--  <script src="https://media.twiliocdn.com/sdk/js/chat/v2.2/twilio-chat.min.js"></script>-->
     <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+    <script src="https://media.twiliocdn.com/sdk/js/sync/releases/0.8.2/twilio-sync.min.js"></script>
     <script type="text/javascript">
         /* Subscribe to a subset of the available TaskRouter.js events for a worker */
-        var ReservationObject;
-        var chatClient;
-        var $chatWindow = $('#messages');
-        var user_dataObject;
-        var username;
-        var workerName;
-
-         // A handle to the "general" chat channel - the one and only channel we
-        // will have in this sample app
-        var generalChannel;
+        let ReservationObject;
+        let chatClient;
+        let $chatWindow = $('#messages');
+        let user_dataObject;
+        let username;
+        let workerName;
+        //let syncClient;
+        let generalChannel;
+        let isManager = false;
 
         function registerTaskRouterCallbacks() {
             worker.on('ready', function (worker) {
-                agentActivityChanged(worker.activityName);
-                logger("Successfully registered as: " + worker.friendlyName);
+             //   agentActivityChanged(worker.activityName);
+                //logger("Successfully registered as: " + worker.friendlyName);
+
                 workerName = worker.friendlyName;
+
                 logger("Current activity is: " + worker.activityName);
+
+                if(worker.attributes.skills && worker.attributes.skills.includes('manager')) {
+                    document.querySelector('h2').innerHTML = "ACME manager desktop: " + worker.friendlyName;
+                    isManager = true;
+                } else {
+                    document.querySelector('h2').innerHTML = "ACME agent desktop: " + worker.friendlyName;
+                }
+                if(worker.attributes.skills) {
+                    logger("Skills: " + worker.attributes.skills);
+                }
+                    logger("Current activity is: " + worker.activityName);
+                refreshWorkerUI(worker);
             });
 
             worker.on('activity.update', function (worker) {
-                agentActivityChanged(worker.activityName);
-                logger("Worker activity changed to: " + worker.activityName);
+
+                let activityName = worker.activityName;
+                logger("Worker activity changed to: " + activityName);
+                refreshWorkerUI(worker, worker.activityName);
+
+
             });
 
             worker.on("reservation.created", function (reservation) {
@@ -46,13 +67,13 @@
                 console.log(reservation.sid);
                 ReservationObject = reservation;
 
-                if (ReservationObject.task.attributes.selected_product == "sms"){
+                if (ReservationObject.task.attributes.selected_product === "sms"){
 
-                    document.getElementById('accept').innerText = 'Accept SMS chat'
-                    buttonManager("accept", "inline");
-                }else{
-                    buttonManager("accept", "inline");
+                    document.getElementById('btn_accept').innerText = 'Accept SMS chat'
+
                 }
+
+                refreshWorkerUI(worker, "Incoming Reservation")
 
 
             });
@@ -72,61 +93,9 @@
             worker.on("reservation.canceled", function (reservation) {
                 logger("Reservation " + reservation.sid + " canceled!");
             });
-        }
 
-        /* Hook up the agent Activity buttons to TaskRouter.js */
 
-        function bindAgentActivityButtons() {
-            // Fetch the full list of available Activities from TaskRouter. Store each
-            // ActivitySid against the matching Friendly Name
-            var activitySids = {};
-            worker.activities.fetch(function (error, activityList) {
-                var activities = activityList.data;
-                var i = activities.length;
-                while (i--) {
-                    activitySids[activities[i].friendlyName] = activities[i].sid;
-                }
-            });
 
-            /* For each button of class 'change-activity' in our Agent UI, look up the
-             ActivitySid corresponding to the Friendly Name in the button’s next-activity
-             data attribute. Use Worker.js to transition the agent to that ActivitySid
-             when the button is clicked.*/
-            var elements = document.getElementsByClassName('change-activity');
-            var i = elements.length;
-            while (i--) {
-                elements[i].onclick = function () {
-                    var nextActivity = this.dataset.nextActivity;
-                    var nextActivitySid = activitySids[nextActivity];
-                    worker.updateActivity(nextActivitySid);
-
-                    console.log(worker);
-
-                    console.log('from event change:' + globalReservationObject.sid);
-
-                }
-            }
-        }
-
-        /* Update the UI to reflect a change in Activity */
-
-        function agentActivityChanged(activity) {
-            hideAgentActivities();
-            showAgentActivity(activity);
-        }
-
-        function hideAgentActivities() {
-            var elements = document.getElementsByClassName('agent-activity');
-            var i = elements.length;
-            while (i--) {
-                elements[i].style.display = 'none';
-            }
-        }
-
-        function showAgentActivity(activity) {
-            activity = activity.toLowerCase();
-            var elements = document.getElementsByClassName(('agent-activity ' + activity));
-            elements.item(0).style.display = 'block';
         }
 
         function print(infoMessage, asHtml) {
@@ -142,16 +111,8 @@
         function acceptReservation() {
 
             ReservationObject.accept();
+            refreshWorkerUI(worker, "In a Chat");
             console.log(ReservationObject);
-            buttonManager("accept", "none");
-            buttonManager("end", "inline");
-
-            if (ReservationObject.task.attributes.selected_product == "sms") {
-                  document.getElementById('accept').innerText = 'Accept SMS chat'
-            } else {
-                buttonManager("escalate", "inline");
-
-            }
 
             var chatWindowBox = $('#messages');
             chatWindowBox.innerText = '';
@@ -165,12 +126,8 @@
                     log.value += "\n> " + message;
                     log.scrollTop = log.scrollHeight;
                 }
-            // Helper function to print chat message to the chat window
 
-
-
-            // Alert the user they have been assigned a random username
-            logger('Logging in...');
+            logger('Logging in to Chat...');
 
             // Get an access token for the current user, passing a username (identity)
             // and a device ID - for browser-based apps, we'll always just use the
@@ -182,8 +139,6 @@
                 device: 'browser'
             }, function(data) {
 
-
-                // Alert the user they have been assigned a random username
                 username = data.identity;
                 console.log(ReservationObject);
                 user_identity = data.identity;
@@ -194,6 +149,32 @@
                 // Initialize the Chat client
                 chatClient = new Twilio.Chat.Client(data.token);
                 chatClient.getSubscribedChannels().then(createOrJoinGeneralChannel);
+
+               /* syncClient = new Twilio.Sync.Client(data.token, { logLevel: 'info' });
+
+                syncClient.on('connectionStateChanged', function(state) {
+                  if (state != 'connected') {
+                    document.getElementById("syncStatus").innerText = 'Sync is not live (websocket connection <span style="color: red">' + state + '</span>';
+                  } else {
+                     document.getElementById("syncStatus").innerText ='Sync is live!';
+                  }
+                });
+                 syncDocName = workerName;
+                 syncClient.document(syncDocName).then(function(doc) {
+
+                    console.log(syncDocName + ' Opened: ' + doc.value)
+                  });
+                  //Let's subscribe to changes on this document, so when something
+                  //changes on this document, we can trigger our UI to update
+                  syncClient.document(syncDocName).then(function (doc) {
+                    doc.on("updated",function(data) {
+                      console.log(workerName+': ' + JSON.stringify(data));
+
+                    });
+                  });*/
+
+
+
             });
   }
 
@@ -211,7 +192,7 @@
                 $chatWindowBox.scrollTop($chatWindowBox[0].scrollHeight);
             }
 
-       function createOrJoinGeneralChannel() {
+        function createOrJoinGeneralChannel() {
 
                 logger('Attempting to join customer chat channel...');
                 var promise = chatClient.getChannelBySid(ReservationObject.task.attributes.channel);
@@ -240,15 +221,15 @@
                 // Join the general channel
 
             generalChannel.join().then(function (channel) {
-                  if (ReservationObject.task.attributes.selected_product == "sms") {
-                      printMessage('Customer ', ReservationObject.task.attributes.Body)
+                  if (ReservationObject.task.attributes.selected_product === "sms") {
+                      printMessage(ReservationObject.task.attributes.from, ReservationObject.task.attributes.body)
                   }
                 });
 
                 // Listen for new messages sent to the channel
                     generalChannel.on('messageAdded', function(message) {
 
-                   if (message.author == workerName)
+                   if (message.author === workerName)
                     {
                         //worker message will already have been added, so no need to print it to the screen
                     }else{
@@ -281,7 +262,7 @@
 
                                  printMessage(workerName, chatinput.val());
 
-                              if (ReservationObject.task.attributes.selected_product =="sms") {
+                              if (ReservationObject.task.attributes.selected_product ==="sms") {
                                   $.post("/sendSMS", {
                                     Body: String(chatinput.val()),
                                     From: ReservationObject.task.attributes.from
@@ -291,23 +272,41 @@
                               }
                                 chatinput.val('');
 
+                                /*  $.post("/syncStatus", {
+                                            data: ReservationObject.task.attributes.channel,
+                                     identity: user_dataObject.identity
+                                }).then(function(Task) {
+                                            logger('Created escalation: ' + Task);
+
+                                        });*/
                              }
         }
 
         function completeReservation() {
             logger('chat complete!');
-            print(user_dataObject);
-            ReservationObject.task.complete();
-            $.post("/postChat/", {
-                channel: ReservationObject.task.attributes.channel,
-                identity: user_dataObject.identity
+            let type;
 
+            if (ReservationObject.task.attributes.selected_product ==="sms")
+            {
+                type = 'sms'
+            }
+            else{
+                type = 'chat'
+            }
+            ReservationObject.task.complete();
+           worker.update("ActivitySid", "{{ activity['WrapUp'] }}", function (error, worker) {
+                if (error) {
+                    console.log(error.code);
+                    console.log(error.message);
+                }
             });
 
-            buttonManager("end", "none");
-            buttonManager("Leave", "none");
-            buttonManager("escalate", "none");
-            buttonManager("accept", "none");
+            $.post("/postChat/", {
+                channel: ReservationObject.task.attributes.channel,
+                identity: user_dataObject.identity,
+                type:type
+            });
+
 
         }
 
@@ -328,66 +327,184 @@
             log.scrollTop = log.scrollHeight;
         }
 
-        window.onload = function () {
+         window.onload = function () {
             // Initialize TaskRouter.js on page load using window.workerToken -
             // a Twilio Capability token that was set from rendering the template with agents endpoint
             logger("Initializing...");
             window.worker = new Twilio.TaskRouter.Worker("{{ worker_token| safe }}");
 
             registerTaskRouterCallbacks();
-            bindAgentActivityButtons();
+
+
+         /*   $.getJSON('/synctoken', {
+                identity: 'syncworker',
+                device: 'browser'
+            }, function(data) {
+
+                username = data.identity;
+                user_identity = data.identity;
+                user_dataObject = data;
+                console.log(data);
+                console.log(user_identity);
+
+                syncClient = new Twilio.Sync.Client(data.token, { logLevel: 'info' });
+
+                syncClient.on('connectionStateChanged', function(state) {
+                  if (state != 'connected') {
+                    document.getElementById("syncStatus").innerText = 'Sync is not live - websocket connection ' + state;
+                  } else {
+                     document.getElementById("syncStatus").innerText ='Sync is live!';
+                  }
+                });
+                 var syncDocName = 'syncSessionStatusDoc';
+                 syncClient.document(syncDocName).then(function(doc) {
+
+                    console.log(syncDocName + ' Opened: ' + doc.value)
+                  });
+                  //Let's subscribe to changes on this document, so when something
+                  //changes on this document, we can trigger our UI to update
+                  syncClient.document(syncDocName).then(function (doc) {
+                    doc.on("updated",function(data) {
+                      console.log(workerName+': ' + JSON.stringify(data));
+
+                    });
+
+                         var data = '';
+                       // syncDoc.set(data);
+
+
+
+
+                  });
+
+
+
+            }); */
         };
 
-    function buttonManager (button, visible) {
-        document.getElementById(button).style.display = visible;
-    }
+        function goAvailable() {
+            // update worker's activity to Idle
+
+          //  refreshWorkerUI(worker, 'Idle');
+            worker.update("ActivitySid", "{{ activity['Idle'] }}", function (error, worker) {
+                if (error) {
+                    console.log(error.code);
+                    console.log(error.message);
+                }
+            });
+        }
+        function goOffline() {
+            // update worker's activity to Offline
+            worker.update("ActivitySid", "{{ activity['Offline'] }}", function (error, worker) {
+                if (error) {
+                    console.log(error.code);
+                    console.log(error.message);
+                }
+            });
+        }
+
+        // Show/hide buttons corresponding to the activity
+        function refreshWorkerUI(worker, activityOverride = null) {
+            let activityName = activityOverride || worker.activityName;
+
+            console.log("Worker activity: " + activityName);
+            let buttons = {
+                'online'   : false,
+                'offline'  : false,
+                'escalate' : false,
+                'accept'   : false,
+                'reject'   : false,
+
+            };
+
+            switch(activityName) {
+                case "Idle":
+                    buttons['offline'] = true;
+                    break;
+                case "Offline":
+                    buttons['online'] = true;
+                    break;
+                case "Incoming Reservation":
+                    buttons['accept'] = true;
+                    buttons['reject'] = true;
+                    break;
+                case "In a Chat":
+                    if(!isManager) {
+                        buttons['escalate'] = true;
+
+                    }
+                    buttons['leave'] = true;
+                    break;
+                case "WrapUp":
+                    buttons['offline'] = true;
+                    buttons['online'] = true;
+                     buttons['leave'] = false;
+                    if(!isManager) {
+                        buttons['escalate'] = false;
+
+                    }
+                    break;
+            }
+            Object.keys(buttons).forEach(function(button) {
+                //console.log(button, buttons[button]);
+                document.getElementById("btn_" + button).style.display = (buttons[button] ? "inline" : "none");
+            });
+
+            let available = worker.available;
+            console.log(available);
+            document.getElementById("worker_status").innerText = activityName;
+            if (available === true) {
+                document.getElementById("worker_status").style.color = "#00BB00";
+            } else {
+                document.getElementById("worker_status").style.color = "#BB0000";
+            }
+        }
+
+
     </script>
 
 </head>
 <body>
 <div class="content">
-    <section class="agent-activity offline">
-        <p class="activity">Offline</p>
-        <button class="change-activity" data-next-activity="Idle">Go Available</button>
-    </section>
-    <section class="agent-activity idle">
-        <p class="activity"><span>Available</span></p>
-        <button class="change-activity" data-next-activity="Offline">Go Offline</button>
-    </section>
-    <section class="agent-activity reserved">
-        <p class="activity">Reserved</p>
-    </section>
-    <section class="agent-activity busy">
-        <p class="activity">Busy</p>
-    </section>
-    <section class="agent-activity wrapup">
-        <p class="activity">Wrap-Up</p>
-        <button class="change-activity" data-next-activity="Idle">Go Available</button>
-        <button class="change-activity" data-next-activity="Offline">Go Offline</button>
+    <div class="content">
+    <h2>ACME desktop</h2>
+
+    <section id="worker_status">
     </section>
     <section>
-        <button id="accept" class="btn" style="display:none" onclick="acceptReservation()">Accept chat</button>
-         <button id="end" class="btn" style="display:none"  onclick="completeReservation()">End chat</button>
-          <button id="Leave" class="btn" style="display:none"  onclick="completeReservation()">Leave chat</button>
-           <button id="escalate" class="btn" style="display:none"  onclick="escalateChat()">Escalate chat</button>
-            <button id="Leave" class="btn" style="display:none"  onclick="">Leave chat</button>
+        <br/>
+        <button id="btn_accept" style="display:none;" class="btn" onclick="acceptReservation()">Accept</button>
+        <button id="btn_reject" style="display:none;" class="btn" onclick="rejectReservation()">Reject</button>
+        <button id="btn_leave"  style="display:none"  class="btn" onclick="completeReservation()">End chat</button>
 
+        <button id="btn_online" style="display:none;" class="btn" onclick="goAvailable()">Go Available</button>
+        <button id="btn_offline" style="display:none;" class="btn" onclick="goOffline()">Go Offline</button>
+
+         <button id="btn_escalate" style="display:none" class="btn" onclick="escalateChat()">Escalate chat</button>
     </section>
-   <br />
+
     <section class="log">
-
-        <textarea id="log" readonly="true"></textarea>
-
     </section>
+    <br/>
+    <section>
+    <textarea id="log" readonly="true"></textarea>
+    </section>
+         <section>
+      <div id="syncStatus"></div>
+      <div id="typing"></div>
+      <div id="messages"></div>
+
+    <input id="chat-input" onkeypress="sendMessage()" type="text" placeholder="..." autofocus/>
+  </section>
+    <div>
+        <a href="/agent_list">Back to Agent List</a>
+    </div>
+</div>
+
     <!--<script src={{ url_for('static', filename='js/index.js') }}></script>-->
 
 
-  <section>
-      <div id="typing"></div>
-    <div id="messages"></div>
 
-    <input id="chat-input" onkeypress="sendMessage()" type="text" placeholder="" autofocus/>
-  </section>
 
 
 

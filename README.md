@@ -6,7 +6,7 @@ Languages: Python, js
 
 This implements:
 
-- Two channels (Voice & Programmable Chat)
+- Three channels (SMS, Voice & Programmable Chat)
 - 4 department, multilingual contact centre
 - Agent UI based on TaskRouter SDK for low latency
 - Twilio Client WebRTC dashboard

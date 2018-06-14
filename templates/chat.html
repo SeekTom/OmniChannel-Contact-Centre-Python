@@ -4,7 +4,10 @@
     <title>OwlCorp Chat Support!</title>
         <link rel="shortcut icon" href="//www.twilio.com/marketing/bundles/marketing/img/favicons/favicon.ico">
          <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
-         <link rel="stylesheet" href={{ url_for('static', filename='css/chat.css') }}>
+          <link rel="stylesheet" href="//media.twiliocdn.com/taskrouter/quickstart/agent.css"/>
+    <link rel="stylesheet" href={{ url_for('static', filename='css/agent.css') }}>
+      <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+
          <script src="https://media.twiliocdn.com/sdk/js/common/v0.1/twilio-common.min.js"></script>
          <script src="https://media.twiliocdn.com/sdk/js/chat/v1.0/twilio-chat.js"></script>
          <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
@@ -21,6 +24,7 @@
 <body>
   <header>
    </header>
+  <h2>Customer Support Chat</h2>
  <div id="typing"></div>
   <section>
 
@@ -28,7 +32,6 @@
     <div id="messages">
 
     </div>
-
 
     <input id="chat-input" type="text" placeholder="say anything" autofocus/>
     </div>
